@@ -72,12 +72,16 @@ def get_and_display_channels():
     CHANNELS.clear()
     conn.team_name(app.getOptionBox('Team').lower())
     ch = conn.get_channels()
-    for c in ch:
-        channel = {}
-        if c['display_name']:
-            channel['name'] = c['name']
-            channel['num_posts'] = c['total_msg_count']
-            CHANNELS[c['display_name']] = channel
+    i = 0
+    while ch:
+        for c in ch:
+            channel = {}
+            if c['display_name']:
+                channel['name'] = c['name']
+                channel['num_posts'] = c['total_msg_count']
+                CHANNELS[c['display_name']] = channel
+        i += 1
+        ch = conn.get_channels(page=i)
     app.updateListBox('Channels', sorted(CHANNELS.keys()),
                       select=False, callFunction=False)
     build_user_hash()
