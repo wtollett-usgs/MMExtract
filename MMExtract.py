@@ -10,10 +10,12 @@
 # Description:
 #   Simple UI app to extract Mattermost Channels into a pdf
 #   Mattermost library expects the following env variables for
-#   connection: MATTERMOST_SERVER_URL, MATTERMOST_USER_ID, 
+#   connection: MATTERMOST_SERVER_URL, MATTERMOST_USER_ID,
 #   MATTERMOST_USER_PASS
 
 import json
+import os
+import shutil
 import sys
 import time
 
@@ -24,6 +26,8 @@ from tomputils import mattermost as mm
 
 USERS = {}
 CHANNELS = {}
+
+TMPFILES = '/tmp/files'
 
 
 def merge_dicts(x, y):
@@ -87,6 +91,14 @@ def get_and_display_channels():
     build_user_hash()
 
 
+def get_and_save_files(files, ch):
+    for id in files:
+        info = json.loads(conn.get_attachment_info(id))
+        with open(os.path.join(TMPFILES, info['name']), 'wb') as f:
+            f.write(conn.get_file(id))
+    shutil.make_archive('%s_attachments' % ch, 'zip', TMPFILES)
+
+
 def extract_channel():
     chname = app.getListBox('Channels')[0]
     pdf = setup_pdf(chname)
@@ -97,6 +109,7 @@ def extract_channel():
     t = time.mktime(d.timetuple())
     order = []
     posts = {}
+    files = []
     for i in range(0, (nposts/30) + 1):
         resp = json.loads(conn.get_posts(page=i, since=t))
         order = list(reversed(resp['order'])) + order
@@ -109,12 +122,31 @@ def extract_channel():
         else:
             add_title_line(pdf, [USERS[post['user_id']], post['create_at']])
             add_message_line(pdf, post['message'])
+            try:
+                if post['file_ids']:
+                    files.extend(post['file_ids'])
+            except KeyError:
+                pass
     pdf.output('%s.pdf' % chname, 'F')
+    get_and_save_files(files, chname)
     app.infoBox('Completed', 'Exporting to PDF has completed for %s' % chname)
 
 
 def quit_app():
     sys.exit()
+
+
+def setup_tmp_loc():
+    if not os.path.exists(TMPFILES):
+        os.makedirs(TMPFILES)
+    else:
+        for file in os.listdir(TMPFILES):
+            path = os.path.join(TMPFILES, file)
+            try:
+                if os.path.isfile(path):
+                    os.unlink(path)
+            except Exception as e:
+                print(e)
 
 
 def setup_app(app):
@@ -130,5 +162,6 @@ def setup_app(app):
 
 conn = mm.Mattermost()
 app = gui("MMExtract", "300x400")
+setup_tmp_loc()
 setup_app(app)
 app.go()
