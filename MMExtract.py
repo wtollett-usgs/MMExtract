@@ -26,6 +26,7 @@ from tomputils import mattermost as mm
 
 USERS = {}
 CHANNELS = {}
+FILES = {}
 
 TMPFILES = '/tmp/files'
 
@@ -45,20 +46,33 @@ def setup_pdf(channel):
 
 
 def add_title_line(pdf, line):
-    pdf.set_font('Arial', 'B', 12)
+    pdf.set_font('Arial', 'B', 10)
     dt = datetime.fromtimestamp(line[1]/1000)
-    msg = '%s - %s' % (line[0], dt.strftime('%Y-%m-%d %H:%M:%S'))
-    pdf.cell(w=0, h=8, txt=msg, ln=1)
+    msg = '%s at %s' % (line[0], dt.strftime('%Y-%m-%d %H:%M:%S'))
+    pdf.cell(w=0, h=6, txt=msg, ln=1)
 
 
 def add_message_line(pdf, line):
-    pdf.set_font('Arial', '', 10)
-    pdf.cell(15)
     line = line.encode('ascii', 'backslashreplace')
     line = (line.replace('\u201c', '"')
             .replace('\u201d', '"')
             .replace('\u2019', "'"))
-    pdf.multi_cell(w=0, h=6, txt=line)
+    if line:
+        pdf.set_font('Arial', '', 8)
+        pdf.cell(10)
+        pdf.multi_cell(w=0, h=4, txt=line)
+        pdf.ln()
+
+
+def add_attachments_line(pdf, fileids):
+    pdf.set_font('Arial', '', 8)
+    pdf.cell(10)
+    line = '<'
+    for f in fileids:
+        line += " %s," % FILES[f]['name']
+    line = line[:-1]
+    line += " >"
+    pdf.multi_cell(w=0, h=4, txt=line)
     pdf.ln()
 
 
@@ -91,12 +105,18 @@ def get_and_display_channels():
     build_user_hash()
 
 
-def get_and_save_files(files, ch):
-    for id in files:
-        info = json.loads(conn.get_attachment_info(id))
-        with open(os.path.join(TMPFILES, info['name']), 'wb') as f:
-            f.write(conn.get_file(id))
-    shutil.make_archive('%s_attachments' % ch, 'zip', TMPFILES)
+def get_file_info(files):
+    for file in files:
+        info = json.loads(conn.get_attachment_info(file))
+        FILES[file] = info
+
+
+def get_and_save_files(ch):
+    if FILES:
+        for key, val in FILES.iteritems():
+            with open(os.path.join(TMPFILES, val['name']), 'wb') as f:
+                f.write(conn.get_file(key))
+        shutil.make_archive('%s_attachments' % ch, 'zip', TMPFILES)
 
 
 def extract_channel():
@@ -107,28 +127,34 @@ def extract_channel():
     conn.channel_name(ch['name'])
     d = date(2018, 5, 1)
     t = time.mktime(d.timetuple())
+    FILES.clear()
     order = []
     posts = {}
-    files = []
     for i in range(0, (nposts/30) + 1):
         resp = json.loads(conn.get_posts(page=i, since=t))
-        order = list(reversed(resp['order'])) + order
+        for o in reversed(resp['order']):
+            if o not in order:
+                order.append(o)
         posts = merge_dicts(posts, resp['posts'])
     for itm in order:
         post = posts[itm]
         if post['type'] == 'system_join_channel' or \
-           post['type'] == 'system_leave_channel':
+           post['type'] == 'system_leave_channel' or \
+           post['type'] == 'system_add_to_channel' or \
+           post['type'] == 'system_displayname_change' or \
+           post['delete_at']:
             continue
         else:
             add_title_line(pdf, [USERS[post['user_id']], post['create_at']])
             add_message_line(pdf, post['message'])
             try:
                 if post['file_ids']:
-                    files.extend(post['file_ids'])
+                    get_file_info(post['file_ids'])
+                    add_attachments_line(pdf, post['file_ids'])
             except KeyError:
                 pass
     pdf.output('%s.pdf' % chname, 'F')
-    get_and_save_files(files, chname)
+    get_and_save_files(chname)
     app.infoBox('Completed', 'Exporting to PDF has completed for %s' % chname)
 
 

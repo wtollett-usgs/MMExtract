@@ -25,3 +25,4 @@ doc/source/_static/font.css
 doc/source/_static/fonts/
 doc/_build/
 __pycache__
+.vscode/
